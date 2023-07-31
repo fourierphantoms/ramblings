@@ -1,4 +1,4 @@
-ramblings on signal processing
+Signal processing. C++, Python.
 
 
 To use C++ from Python, we need to use a binding mechanism. There are several options available, such as ctypes, Boost.Python, SWIG, and pybind11. In this case, we'll use pybind11, which is a lightweight header-only library that exposes C++ types in Python and vice versa, mainly to create Python bindings for a C++ code.
