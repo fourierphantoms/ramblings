@@ -68,27 +68,7 @@ c++ -O3 -Wall -shared -std=c++11 -fPIC `python3 -m pybind11 --includes` lowess.c
 
 This command compiles the lowess.cpp file to a Python extension named lowess. The -O3 -Wall options enable optimization and warnings. The -shared -std=c++11 -fPIC options are required for creating a shared library that can be loaded by Python. The `python3 -m pybind11 --includes` part adds the necessary include paths for pybind11 and Python. The -o lowess part specifies the output file name. Finally, the `python3-config --extension-suffix` part adds the appropriate file extension for a Python extension (e.g., .so or .pyd).
 
-After compiling the C++ code, you can use it in Python like this:
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-import lowess
-
-# Generate some noisy data
-np.random.seed(0)
-x = np.linspace(0, 2 * np.pi, 100)
-y = np.sin(x) + 0.3 * np.random.randn(100)
-
-# Apply LOWESS smoothing
-y_smoothed = lowess.lowess(x, y)
-
-# Plot the results
-plt.plot(x, y, 'o')
-plt.plot(x, y_smoothed, '-')
-plt.show()
-
-Or, using a rolling window:
+After compiling the C++ code, you can use it in Python like this here:
 
 #include <vector>
 #include <algorithm>
@@ -106,26 +86,34 @@ double tricube_weight(double x) {
 }
 
 std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vector<double>& y, int window_size, double bandwidth, int iterations) {
-    std::vector<double> y_smoothed(y.size());
+    std::vector<double> y_smoothed(y.size(), 0.0);
     for (std::size_t i = 0; i < x.size(); ++i) {
-        std::vector<double> weights(window_size);
+        std::vector<double> weights(window_size, 1.0);
+        std::size_t window_start = i < window_size / 2 ? 0 : i - window_size / 2;
+        std::size_t window_end = std::min(window_start + window_size, x.size());
         for (int iteration = 0; iteration < iterations; ++iteration) {
             double sum_weight = 0, sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
-            std::size_t window_start = i < window_size / 2 ? 0 : i - window_size / 2;
-            std::size_t window_end = std::min(window_start + window_size, x.size());
             for (std::size_t j = window_start; j < window_end; ++j) {
-                weights[j - window_start] = iteration == 0 ? 1 : tricube_weight((y[j] - y_smoothed[i]) / bandwidth);
-                double weight = weights[j - window_start];
                 double xj = x[j] - x[i];
+                if (iteration > 0) {
+                    double yj_diff = y[j] - y_smoothed[j];
+                    weights[j - window_start] = tricube_weight(yj_diff / bandwidth);
+                }
+                double weight = weights[j - window_start];
                 sum_weight += weight;
                 sum_x += weight * xj;
                 sum_y += weight * y[j];
                 sum_xy += weight * xj * y[j];
                 sum_xx += weight * xj * xj;
             }
-            double slope = (sum_weight * sum_xy - sum_x * sum_y) / (sum_weight * sum_xx - sum_x * sum_x);
-            double intercept = (sum_y - slope * sum_x) / sum_weight;
-            y_smoothed[i] = slope * (x[i] - x[i]) + intercept;
+            double denominator = sum_weight * sum_xx - sum_x * sum_x;
+            if (std::abs(denominator) < 1e-6) {
+                y_smoothed[i] = sum_y / sum_weight;
+            } else {
+                double slope = (sum_weight * sum_xy - sum_x * sum_y) / denominator;
+                double intercept = (sum_y - slope * sum_x) / sum_weight;
+                y_smoothed[i] = slope * (x[i] - x[i]) + intercept;
+            }
         }
     }
     return y_smoothed;
@@ -134,9 +122,6 @@ std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vect
 PYBIND11_MODULE(lowess, m) {
     m.def("lowess_rolling", &lowess_rolling, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("bandwidth") = 0.25, py::arg("iterations") = 3);
 }
-
-
-
 
 
 
