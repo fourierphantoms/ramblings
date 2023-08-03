@@ -94,10 +94,10 @@ std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vect
         for (int iteration = 0; iteration < iterations; ++iteration) {
             double sum_weight = 0, sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
             for (std::size_t j = window_start; j < window_end; ++j) {
-                double xj = x[j] - x[i];
+                double xj = x[j] - x[i];  // xj is now centered around 0
                 if (iteration > 0) {
                     double yj_diff = y[j] - y_smoothed[j];
-                    weights[j - window_start] = tricube_weight(yj_diff / bandwidth);
+                    weights[j - window_start] = tricube_weight(yj_diff / (6.0 * bandwidth));
                 }
                 double weight = weights[j - window_start];
                 sum_weight += weight;
@@ -112,7 +112,7 @@ std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vect
             } else {
                 double slope = (sum_weight * sum_xy - sum_x * sum_y) / denominator;
                 double intercept = (sum_y - slope * sum_x) / sum_weight;
-                y_smoothed[i] = slope * (x[i] - x[i]) + intercept;
+                y_smoothed[i] = intercept;
             }
         }
     }
@@ -122,6 +122,62 @@ std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vect
 PYBIND11_MODULE(lowess, m) {
     m.def("lowess_rolling", &lowess_rolling, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("bandwidth") = 0.25, py::arg("iterations") = 3);
 }
+
+##### 
+
+#include <vector>
+#include <algorithm>
+#include <cmath>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+namespace py = pybind11;
+
+double tricube_weight(double x) {
+    double absx = std::abs(x);
+    if (absx > 1) return 0;
+    double p = 1 - absx * absx * absx;
+    return p * p * p;
+}
+
+std::vector<double> lowess_rolling(const std::vector<double>& x, const std::vector<double>& y, int window_size, double bandwidth, int iterations) {
+    std::vector<double> y_smoothed(y.size(), 0.0);
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        std::vector<double> weights(window_size, 1.0);
+        std::size_t window_start = i < window_size / 2 ? 0 : i - window_size / 2;
+        std::size_t window_end = std::min(window_start + window_size, x.size());
+        for (int iteration = 0; iteration < iterations; ++iteration) {
+            double sum_weight = 0, sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+            for (std::size_t j = window_start; j < window_end; ++j) {
+                double xj = x[j] - x[i];  // xj is now centered around 0
+                if (iteration > 0) {
+                    double yj_diff = y[j] - y_smoothed[j];
+                    weights[j - window_start] = tricube_weight(yj_diff / (6.0 * bandwidth));
+                }
+                double weight = weights[j - window_start];
+                sum_weight += weight;
+                sum_x += weight * xj;
+                sum_y += weight * y[j];
+                sum_xy += weight * xj * y[j];
+                sum_xx += weight * xj * xj;
+            }
+            double denominator = sum_weight * sum_xx - sum_x * sum_x;
+            if (std::abs(denominator) < 1e-6) {
+                y_smoothed[i] = sum_y / sum_weight;
+            } else {
+                double slope = (sum_weight * sum_xy - sum_x * sum_y) / denominator;
+                double intercept = (sum_y - slope * sum_x) / sum_weight;
+                y_smoothed[i] = intercept;
+            }
+        }
+    }
+    return y_smoothed;
+}
+
+PYBIND11_MODULE(lowess, m) {
+    m.def("lowess_rolling", &lowess_rolling, py::arg("x"), py::arg("y"), py::arg("window_size"), py::arg("bandwidth") = 0.25, py::arg("iterations") = 3);
+}
+
 
 
 
